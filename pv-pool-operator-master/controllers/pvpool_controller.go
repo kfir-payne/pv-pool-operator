@@ -141,9 +141,10 @@ func (r *PvPoolReconciler) reconcilePvPool(pvp *pvpoolv1.PvPool) (*pvpoolv1.PvPo
 
 	// init a status struct to update with the status
 	newStatus := &pvpoolv1.PvPoolStatus{
-		Phase:        pvpoolv1.PvPoolPhaseUnknown,
-		PodsInfo:     make([]pvpoolv1.PvPodSInfo, 0),
-		CountByState: make(map[pvpoolv1.PvPodStatus]int32),
+		Phase:          pvpoolv1.PvPoolPhaseUnknown,
+		PodsInfo:       make([]pvpoolv1.PvPodSInfo, 0),
+		CountByState:   make(map[pvpoolv1.PvPodStatus]int32),
+		UsedPercentage: 0,
 	}
 
 	srv, err := r.ensurePvPoolService(pvp)
@@ -168,7 +169,9 @@ func (r *PvPoolReconciler) reconcilePvPool(pvp *pvpoolv1.PvPool) (*pvpoolv1.PvPo
 		return newStatus, err
 	}
 
-	err = r.collectPodsStatus(newStatus, podList)
+	pvSizeBytes := int64(pvp.Spec.PvSizeGB) * 1024 * 1024 * 1024
+
+	err = r.collectPodsStatus(newStatus, podList, pvSizeBytes)
 	if err != nil {
 		r.Log.Error(err, "Failed to get storage agents status")
 		return newStatus, err
@@ -393,7 +396,9 @@ func (r *PvPoolReconciler) reconcilePvPoolStatefulset(pvp *pvpoolv1.PvPool, sts 
 
 }
 
-func (r *PvPoolReconciler) collectPodsStatus(pvpStatus *pvpoolv1.PvPoolStatus, list *corev1.PodList) error {
+func (r *PvPoolReconciler) collectPodsStatus(pvpStatus *pvpoolv1.PvPoolStatus, list *corev1.PodList, pvSizeBytes int64) error {
+
+	var totalUsed int64
 
 	for _, pod := range list.Items {
 
@@ -407,7 +412,12 @@ func (r *PvPoolReconciler) collectPodsStatus(pvpStatus *pvpoolv1.PvPoolStatus, l
 		}
 		pvpStatus.PodsInfo = append(pvpStatus.PodsInfo, pvpoolv1.PvPodSInfo{PodName: pod.Name, PodStatus: state})
 		pvpStatus.CountByState[state]++
+		if state == pvpoolv1.PvPodStatusReady {
+			totalUsed += agentStatus.Used
+		}
 	}
+
+	pvpStatus.UsedPercentage = totalUsed * 100 / pvSizeBytes
 
 	return nil
 }

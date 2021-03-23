@@ -48,6 +48,9 @@ type PvPoolStatus struct {
 
 	// CountByState holds the number of pods for each pod status
 	CountByState map[PvPodStatus]int32 `json:"countByState"`
+
+	//UsedPercentage holds the used storage percentage of the pvpool
+	UsedPercentage int64 `json:"usedPercentage"`
 }
 
 // PvPoolPhase is a string enum type for the reconcile phase of a pv pool
