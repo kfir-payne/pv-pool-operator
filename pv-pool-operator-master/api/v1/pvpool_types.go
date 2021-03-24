@@ -57,8 +57,11 @@ type PvPoolStatus struct {
 type PvPoolPhase string
 
 const (
-	// PvPoolPhaseScaling means that the pool is adding or removing pods and not yet reached the desired state
-	PvPoolPhaseScaling = "Scaling"
+	// PvPoolPhaseScaling means that the pool is adding pods and not yet reached the desired state
+	PvPoolPhaseScalingUp = "ScalingUp"
+
+	// PvPoolPhaseScaling means that the pool is removing (decommissioning) pods and not yet reached the desired state
+	PvPoolPhaseScalingDown = "ScalingDown"
 
 	// PvPoolPhaseReady means that the pool is in its desired state
 	PvPoolPhaseReady = "Ready"
