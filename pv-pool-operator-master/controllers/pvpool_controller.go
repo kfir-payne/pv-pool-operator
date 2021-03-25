@@ -367,9 +367,10 @@ func (r *PvPoolReconciler) reconcilePvPoolStatefulset(pvp *pvpoolv1.PvPool, sts 
 	// the statefulset exists. reconcile the properties in the PV pool CR
 	shouldUpdate := false
 	scalingDownNumPods := newStatus.CountByState[pvpoolv1.PvPodStatusDecommissioning] + newStatus.CountByState[pvpoolv1.PvPodStatusDecommissioned]
+	numOfPodsBeforeTerm := scalingDownNumPods + newStatus.CountByState[pvpoolv1.PvPodStatusReady]
 	desiredNumOfPvs := pvp.Spec.NumPVs + scalingDownNumPods
 
-	if (pvp.Spec.NumPVs > *sts.Spec.Replicas) && (newStatus.Phase != pvpoolv1.PvPoolPhaseScalingDown) {
+	if (pvp.Spec.NumPVs > *sts.Spec.Replicas) && (newStatus.CountByState[pvpoolv1.PvPodStatusReady] == *sts.Spec.Replicas) && (scalingDownNumPods == 0) {
 		shouldUpdate = true
 		// set the number of replicas to the number of PVs
 		sts.Spec.Replicas = &pvp.Spec.NumPVs
@@ -377,7 +378,7 @@ func (r *PvPoolReconciler) reconcilePvPoolStatefulset(pvp *pvpoolv1.PvPool, sts 
 		newStatus.Phase = pvpoolv1.PvPoolPhaseScalingUp
 	} else {
 		//check if scale down is required
-		if desiredNumOfPvs < *sts.Spec.Replicas {
+		if (desiredNumOfPvs < *sts.Spec.Replicas) && (newStatus.CountByState[pvpoolv1.PvPodStatusReady] == *sts.Spec.Replicas) {
 			// mark the status as ScalingDown
 			newStatus.Phase = pvpoolv1.PvPoolPhaseScalingDown
 			// calculate how many pods to decommission
@@ -411,7 +412,7 @@ func (r *PvPoolReconciler) reconcilePvPoolStatefulset(pvp *pvpoolv1.PvPool, sts 
 	}
 
 	// update the statefulset if there are any pods in Decommissioned status
-	if newStatus.CountByState[pvpoolv1.PvPodStatusDecommissioned] > 0 && desiredNumOfPvs == *sts.Spec.Replicas {
+	if newStatus.CountByState[pvpoolv1.PvPodStatusDecommissioned] > 0 && numOfPodsBeforeTerm == *sts.Spec.Replicas {
 		newStsReplicas := *sts.Spec.Replicas - newStatus.CountByState[pvpoolv1.PvPodStatusDecommissioned]
 		sts.Spec.Replicas = &newStsReplicas
 		r.Log.Info("found pods in decommissioned state", "statefulset name", sts.Name)
@@ -421,7 +422,6 @@ func (r *PvPoolReconciler) reconcilePvPoolStatefulset(pvp *pvpoolv1.PvPool, sts 
 			r.Log.Error(err, "failed to scale down pv pool statefulset")
 			return err
 		}
-		newStatus.Phase = pvpoolv1.PvPoolPhaseReady
 	}
 
 	return nil
