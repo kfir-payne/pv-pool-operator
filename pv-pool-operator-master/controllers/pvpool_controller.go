@@ -366,11 +366,12 @@ func (r *PvPoolReconciler) reconcilePvPoolStatefulset(pvp *pvpoolv1.PvPool, sts 
 
 	// the statefulset exists. reconcile the properties in the PV pool CR
 	shouldUpdate := false
-	scalingDownNumPods := newStatus.CountByState[pvpoolv1.PvPodStatusDecommissioning] + newStatus.CountByState[pvpoolv1.PvPodStatusDecommissioned]
+	scalingDownNumPods := newStatus.CountByState[pvpoolv1.PvPodStatusDecommissioning] +
+		newStatus.CountByState[pvpoolv1.PvPodStatusDecommissioned]
 	numOfPodsBeforeTerm := scalingDownNumPods + newStatus.CountByState[pvpoolv1.PvPodStatusReady]
 	desiredNumOfPvs := pvp.Spec.NumPVs + scalingDownNumPods
 
-	if (pvp.Spec.NumPVs > *sts.Spec.Replicas) && (newStatus.CountByState[pvpoolv1.PvPodStatusReady] == *sts.Spec.Replicas) && (scalingDownNumPods == 0) {
+	if r.isScalingUpRequired(pvp, newStatus, sts, int(scalingDownNumPods)) {
 		shouldUpdate = true
 		// set the number of replicas to the number of PVs
 		sts.Spec.Replicas = &pvp.Spec.NumPVs
@@ -378,7 +379,7 @@ func (r *PvPoolReconciler) reconcilePvPoolStatefulset(pvp *pvpoolv1.PvPool, sts 
 		newStatus.Phase = pvpoolv1.PvPoolPhaseScalingUp
 	} else {
 		//check if scale down is required
-		if (desiredNumOfPvs < *sts.Spec.Replicas) && (newStatus.CountByState[pvpoolv1.PvPodStatusReady] == *sts.Spec.Replicas) {
+		if r.isScalingDownRequired(newStatus, sts, desiredNumOfPvs) {
 			// mark the status as ScalingDown
 			newStatus.Phase = pvpoolv1.PvPoolPhaseScalingDown
 			// calculate how many pods to decommission
@@ -397,7 +398,7 @@ func (r *PvPoolReconciler) reconcilePvPoolStatefulset(pvp *pvpoolv1.PvPool, sts 
 		// mark the status as ready
 		newStatus.Phase = pvpoolv1.PvPoolPhaseReady
 	} else {
-		// in this case the sts is reconciled but not all pods are ready. mark as scaling
+		// in this case the sts is reconciled but not all pods are ready. mark as scalingUp
 		newStatus.Phase = pvpoolv1.PvPoolPhaseScalingUp
 	}
 
@@ -406,13 +407,13 @@ func (r *PvPoolReconciler) reconcilePvPoolStatefulset(pvp *pvpoolv1.PvPool, sts 
 		// update the STS
 		err := r.Update(context.TODO(), sts)
 		if err != nil {
-			r.Log.Error(err, "failed to update pv pool statefulset")
+			r.Log.Error(err, "failed to scale up pv pool statefulset")
 			return err
 		}
 	}
 
 	// update the statefulset if there are any pods in Decommissioned status
-	if newStatus.CountByState[pvpoolv1.PvPodStatusDecommissioned] > 0 && numOfPodsBeforeTerm == *sts.Spec.Replicas {
+	if r.shouldScaleDown(newStatus, sts, numOfPodsBeforeTerm) {
 		newStsReplicas := *sts.Spec.Replicas - newStatus.CountByState[pvpoolv1.PvPodStatusDecommissioned]
 		sts.Spec.Replicas = &newStsReplicas
 		r.Log.Info("found pods in decommissioned state", "statefulset name", sts.Name)
@@ -548,4 +549,20 @@ func (r *PvPoolReconciler) decommissionPods(numPvsToDecommission int32, pvpStatu
 		numPvsToDecommission--
 	}
 	return nil
+}
+
+func (r *PvPoolReconciler) isScalingUpRequired(pvp *pvpoolv1.PvPool, newStatus *pvpoolv1.PvPoolStatus, sts *appsv1.StatefulSet, scalingDownNumPods int) bool {
+	return (pvp.Spec.NumPVs > *sts.Spec.Replicas) &&
+		(newStatus.CountByState[pvpoolv1.PvPodStatusReady] == *sts.Spec.Replicas) &&
+		(scalingDownNumPods == 0)
+}
+
+func (r *PvPoolReconciler) isScalingDownRequired(newStatus *pvpoolv1.PvPoolStatus, sts *appsv1.StatefulSet, desiredNumOfPvs int32) bool {
+	return (desiredNumOfPvs < *sts.Spec.Replicas) &&
+		(newStatus.CountByState[pvpoolv1.PvPodStatusReady] == *sts.Spec.Replicas)
+}
+
+func (r *PvPoolReconciler) shouldScaleDown(newStatus *pvpoolv1.PvPoolStatus, sts *appsv1.StatefulSet, numOfPodsBeforeTerm int32) bool {
+	return (newStatus.CountByState[pvpoolv1.PvPodStatusDecommissioned] > 0) &&
+		(numOfPodsBeforeTerm == *sts.Spec.Replicas)
 }
