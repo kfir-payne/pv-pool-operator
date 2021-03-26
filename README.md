@@ -8,7 +8,7 @@ The PV pool is defined using a `PvPool` CRD.
 * All build and deploy commands are defined in the `Makefile`.
 * Deploy the operator - this will run an operator [deployment](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/) in your cluster
     ```
-    make deploy IMG=kfirpayne/pv-pool-operator:v1.0.0
+    make deploy IMG=kfirpayne/pv-pool-operator:v1.0.1
     ```
 
 ### The operator
